@@ -90,7 +90,7 @@
       formData.append("image", file);
 
       try {
-        const response = await fetch("https://image-compressor-tool.onrender.com/", {
+        const response = await fetch("https://image-compressor-tool.onrender.com/remove-bg", {
           method: "POST",
           body: formData,
         });
