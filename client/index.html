@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Advanced Image Compressor</title>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    canvas { border: 1px solid #ccc; margin-top: 10px; max-width: 100%; }
+    .row { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h2>Advanced Image Compressor Tool</h2>
+
+  <div class="row">
+    <input type="file" id="upload" accept="image/*" />
+  </div>
+
+  <div class="row">
+    <label>Quality (0.1 - 1):</label>
+    <input type="range" id="quality" min="0.1" max="1" step="0.1" value="0.8" />
+  </div>
+
+  <div class="row">
+    <label>Canvas Width:</label>
+    <input type="number" id="width" placeholder="auto" />
+
+    <label>Canvas Height:</label>
+    <input type="number" id="height" placeholder="auto" />
+  </div>
+
+  <div class="row">
+    <label><input type="checkbox" id="whiteBg" /> Force White Background</label>
+  </div>
+
+  <div class="row">
+    <label><input type="checkbox" id="removeBg" /> Remove Background (AI)</label>
+  </div>
+
+  <div class="row">
+    <label>Watermark Image:</label>
+    <input type="file" id="watermarkImg" accept="image/*" />
+  </div>
+
+  <div class="row">
+    <label>Watermark Size (%):</label>
+    <input type="range" id="wmSize" min="10" max="80" step="5" value="30" />
+  </div>
+
+  <div class="row">
+    <label>Watermark Opacity:</label>
+    <input type="range" id="wmOpacity" min="0.1" max="1" step="0.1" value="0.5" />
+  </div>
+
+  <div class="row">
+    <label>Human Verification:</label><br />
+    <span id="captchaText" style="font-weight: bold; font-size: 18px"></span><br />
+    <input type="text" id="captchaInput" placeholder="Enter text above" />
+    <button onclick="generateCaptcha()">Refresh</button>
+  </div>
+
+  <div id="loading" style="display:none; color:green; font-weight:bold;">
+    Processing... please wait ⏳
+  </div>
+
+  <br />
+  <button onclick="processImage()">Process Image</button>
+
+  <br />
+  <canvas id="canvas"></canvas>
+  <br /><br />
+  <a id="download" style="display: none">Download Image</a>
+
+  <script>
+    let currentCaptcha = "";
+
+    function generateCaptcha() {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      currentCaptcha = "";
+      for (let i = 0; i < 5; i++) {
+        currentCaptcha += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      document.getElementById("captchaText").innerText = currentCaptcha;
+    }
+
+    window.onload = generateCaptcha;
+
+    async function removeBackground(file) {
+      const formData = new FormData();
+      formData.append("image", file);
+
+      try {
+        const response = await fetch("http://localhost:3000/remove-bg", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) {
+          alert("Background removal failed");
+          return null;
+        }
+
+        const blob = await response.blob();
+        return URL.createObjectURL(blob);
+
+      } catch (error) {
+        alert("Server not reachable");
+        return null;
+      }
+    }
+
+    async function processImage() {
+      document.getElementById("loading").style.display = "block";
+
+      const userCaptcha = document.getElementById("captchaInput").value;
+      if (userCaptcha !== currentCaptcha) {
+        alert("Captcha incorrect");
+        generateCaptcha();
+        document.getElementById("loading").style.display = "none";
+        return;
+      }
+
+      const file = document.getElementById("upload").files[0];
+      if (!file) {
+        alert("Upload an image");
+        document.getElementById("loading").style.display = "none";
+        return;
+      }
+
+      let imageSrc;
+
+      if (document.getElementById("removeBg").checked) {
+        imageSrc = await removeBackground(file);
+        if (!imageSrc) {
+          document.getElementById("loading").style.display = "none";
+          return;
+        }
+      } else {
+        imageSrc = URL.createObjectURL(file);
+      }
+
+      const img = new Image();
+      img.onload = function () {
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+
+        const widthInput = document.getElementById("width").value;
+        const heightInput = document.getElementById("height").value;
+
+        const canvasWidth = widthInput ? parseInt(widthInput) : img.width;
+        const canvasHeight = heightInput ? parseInt(heightInput) : img.height;
+
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+
+        if (document.getElementById("whiteBg").checked) {
+          ctx.fillStyle = "white";
+          ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        }
+
+        const imgRatio = img.width / img.height;
+        const canvasRatio = canvasWidth / canvasHeight;
+
+        let drawWidth, drawHeight, offsetX, offsetY;
+
+        if (imgRatio > canvasRatio) {
+          drawHeight = canvasHeight;
+          drawWidth = img.width * (canvasHeight / img.height);
+          offsetX = (canvasWidth - drawWidth) / 2;
+          offsetY = 0;
+        } else {
+          drawWidth = canvasWidth;
+          drawHeight = img.height * (canvasWidth / img.width);
+          offsetX = 0;
+          offsetY = (canvasHeight - drawHeight) / 2;
+        }
+
+        ctx.drawImage(img, offsetX, offsetY, drawWidth, drawHeight);
+
+        const watermarkFile = document.getElementById("watermarkImg").files[0];
+        if (watermarkFile) {
+          const wmImg = new Image();
+          wmImg.onload = function () {
+            const sizePercent = document.getElementById("wmSize").value / 100;
+            const opacity = document.getElementById("wmOpacity").value;
+
+            const wmWidth = canvasWidth * sizePercent;
+            const wmHeight = wmImg.height * (wmWidth / wmImg.width);
+
+            const wmX = (canvasWidth - wmWidth) / 2;
+            const wmY = (canvasHeight - wmHeight) / 2;
+
+            ctx.globalAlpha = opacity;
+            ctx.drawImage(wmImg, wmX, wmY, wmWidth, wmHeight);
+            ctx.globalAlpha = 1;
+
+            exportImage(canvas);
+          };
+          wmImg.src = URL.createObjectURL(watermarkFile);
+        } else {
+          exportImage(canvas);
+        }
+
+        URL.revokeObjectURL(imageSrc);
+      };
+
+      img.src = imageSrc;
+    }
+
+    function exportImage(canvas) {
+      const quality = document.getElementById("quality").value;
+      const dataUrl = canvas.toDataURL("image/jpeg", quality);
+
+      const download = document.getElementById("download");
+      download.href = dataUrl;
+      download.download = "compressed.jpg";
+      download.style.display = "inline";
+      download.innerText = "Download Image";
+
+      document.getElementById("loading").style.display = "none";
+    }
+  </script>
+</body>
+</html>
